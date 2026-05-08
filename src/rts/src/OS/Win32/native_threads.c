@@ -71,6 +71,8 @@
 #include "i386_code.h"
 
 #include <windows.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 /* This is coming up as undefined for some reason, in spite of the other
    related symbols being fine and it being documented at
@@ -171,27 +173,54 @@ extern struct thread_state *
 native_thread_yield(struct thread_state *this_thread,
 		    struct thread_state *other_thread)
 {
+  int trace = getenv("MLW_RTS_TRACE") != NULL;
   DIAGNOSTIC(2,"Native thread %d yielding to native thread %d",
 	     this_thread->number, other_thread->number);
+  if (trace) {
+    fprintf(stderr, "[rts] native yield %d -> %d\n",
+	    this_thread->number, other_thread->number);
+    fflush(stderr);
+  }
   previous_thread = this_thread;
   set_event(other_thread->c_state.native.event);
   DIAGNOSTIC(3,"Native thread %d set event in thread %d, waiting for event",
 	     this_thread->number, other_thread->number);
   wait_for_event(this_thread->c_state.native.event);
+  if (trace) {
+    fprintf(stderr, "[rts] native yield resumed in %d previous=%p\n",
+	    this_thread->number, (void *)previous_thread);
+    fflush(stderr);
+  }
   DIAGNOSTIC(3,"Back in native thread %d",this_thread->number,0);
   return previous_thread;
 }
 
 /* This is the function which runs when a native thread is first created */
 
-static void native_thread_run(struct c_state *c_state)
+static DWORD WINAPI native_thread_run(LPVOID argument)
 {
+  struct c_state *c_state = (struct c_state *)argument;
+  int trace = getenv("MLW_RTS_TRACE") != NULL;
   void (*continuation)(void);
   DIAGNOSTIC(2,"starting new native thread, waiting for event",0,0);
+  if (trace) {
+    fprintf(stderr, "[rts] native thread waiting c_state=%p\n", (void *)c_state);
+    fflush(stderr);
+  }
   wait_for_event(c_state->native.event);
   continuation = (void (*)(void))c_state->eip;
+  if (trace) {
+    fprintf(stderr, "[rts] native thread running continuation=%p\n",
+	    (void *)continuation);
+    fflush(stderr);
+  }
   DIAGNOSTIC(3,"in new thread, calling continuation 0x%x",continuation,0);
   continuation();
+  if (trace) {
+    fprintf(stderr, "[rts] native thread continuation returned\n");
+    fflush(stderr);
+  }
+  return 0;
 }
 
 /* making a native thread. We create a thread running, immediately to

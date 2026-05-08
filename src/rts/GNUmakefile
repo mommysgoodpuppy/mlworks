@@ -401,6 +401,8 @@ else
 RUNTIMES	= runtime runtime-g runtime-static
 endif
 
+DLLBASE ?= 0x18000000
+
 all: $(GENERATED) $(RUNTIMES)
 generated: $(GENERATED)
 objects: $(OBJECTS)
@@ -578,7 +580,7 @@ $(TARGETDIR)/libmlw: $(DLLOBJECTS)
 	@echo 'MAKE: $@'
 	@$(MKDIR) $(TARGETDIR) $(MKDIREND)
 ifeq "$(NTTYPE)" "TRUE"
-	@$(LINK) /LD $(LINKFLAGS)$@ $(DLLOBJECTS) $(DLLLIBRARIES) $(LIBRARIES) $(LINKENDFLAGS) /SUBSYSTEM:console /FIXED /BASE:0x800000
+	@$(LINK) /LD $(LINKFLAGS)$@ $(DLLOBJECTS) $(DLLLIBRARIES) $(LIBRARIES) $(LINKENDFLAGS) /SUBSYSTEM:console /FIXED /BASE:$(DLLBASE)
 else
 # 	for the sole benefit of Irix 5.1 OS, we have to name the shared library
 # 	"libmlw.so" rather than "bin/MIPS/Irix/libmlw.so", otherwise at
@@ -594,7 +596,7 @@ $(TARGETDIR)/libmlw-g: $(DLLOBJECTSDEBUG)
 	@echo 'MAKE: $@'
 	@$(MKDIR) $(TARGETDIR) $(MKDIREND)
 ifeq "$(NTTYPE)" "TRUE"
-	$(LINK) /LDd  $(LINKFLAGSDEBUG)$@ $(DLLOBJECTSDEBUG) $(DLLLIBRARIES) $(LIBRARIES) $(LINKENDFLAGSDEBUG) /SUBSYSTEM:console /FIXED /BASE:0x800000
+	$(LINK) /LDd  $(LINKFLAGSDEBUG)$@ $(DLLOBJECTSDEBUG) $(DLLLIBRARIES) $(LIBRARIES) $(LINKENDFLAGSDEBUG) /SUBSYSTEM:console /FIXED /BASE:$(DLLBASE)
 	@bscmake /oruntime-g.bsc $(DLLOBJECTSSBR)
 else
 #see note in libmlw target

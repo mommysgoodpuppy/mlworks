@@ -181,6 +181,8 @@
 #include "mem.h"		/* GENERATION */
 
 #include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 int thread_preemption_on = 0;
 int thread_preemption_pending = 0;
@@ -653,6 +655,11 @@ static inline struct thread_state *next_runnable_thread
 extern void run_scheduler(int (*start_mlworks)(int, const char *const *, mlval, void (*)(void)),
 			  int argc, const char *const *argv, mlval setup, void (*declare)(void))
 {
+  int trace = getenv("MLW_RTS_TRACE") != NULL;
+  if (trace) {
+    fprintf(stderr, "[rts] run_scheduler enter argc=%d\n", argc);
+    fflush(stderr);
+  }
   sm_init();
   stubs_init();
   mlw_ci_init_globals();  /* .order */
@@ -669,14 +676,33 @@ extern void run_scheduler(int (*start_mlworks)(int, const char *const *, mlval, 
 		 NULL, thread_1_fatal_handler_fix, NULL);
 
   thread_c_fork((void (*)()) start_mlworks, (word) argc, (word) argv, (word)setup, (word) declare, "start_mlworks");
+  if (trace) {
+    fprintf(stderr, "[rts] scheduler after fork next=%p top=%p\n",
+	    (void *)TOP_THREAD.next, (void *)&TOP_THREAD);
+    fflush(stderr);
+  }
 
   /* The scheduler loop */
   while (TOP_THREAD.next != &TOP_THREAD) {
     struct thread_state *thread;
+    if (trace) {
+      fprintf(stderr, "[rts] scheduler switching to thread %d\n",
+	      TOP_THREAD.next->number);
+      fflush(stderr);
+    }
     thread =
       change_thread(next_runnable_thread(TOP_THREAD.next));
+    if (trace) {
+      fprintf(stderr, "[rts] scheduler returned from thread %d\n",
+	      thread->number);
+      fflush(stderr);
+    }
     DIAGNOSTIC(5,"thread %d returned to the scheduler", thread->number, 0);
     unmake_thread(thread);
+  }
+  if (trace) {
+    fprintf(stderr, "[rts] run_scheduler leave\n");
+    fflush(stderr);
   }
   signals_finalise();
 }

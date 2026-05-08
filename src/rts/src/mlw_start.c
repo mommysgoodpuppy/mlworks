@@ -48,6 +48,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+#include <stdlib.h>
 #include "ansi.h"
 
 #include "types.h"
@@ -406,6 +407,7 @@ extern mlval asm_trampoline(mlval);
 
 extern int start_mlworks(int argc, const char *const *argv, mlval setup, void (*declare)(void))
 {
+  int trace = getenv("MLW_RTS_TRACE") != NULL;
   int loop;
   mlval result = MLUNIT;
   struct profile_options profile_options;
@@ -413,6 +415,11 @@ extern int start_mlworks(int argc, const char *const *argv, mlval setup, void (*
   int option_parse_status;
 
   runtime = argv[0];
+  if (trace) {
+    fprintf(stderr, "[rts] start_mlworks enter argc=%d runtime=%s\n",
+	    argc, runtime);
+    fflush(stderr);
+  }
 
   --argc; ++argv;	/* Skip the command name argument */
 
@@ -689,7 +696,7 @@ extern int start_mlworks(int argc, const char *const *argv, mlval setup, void (*
   start = clock();
 
   /* If an image with a continuation was loaded, execute it first. */
-  if(image_continuation != MLUNIT) {
+  if(image_continuation != MLUNIT && !option_save_exec.specified) {
     result = image_continuation;
     image_continuation = MLUNIT;
     setup = MLUNIT; /* Don't do setup if we do image continuation */
@@ -734,13 +741,22 @@ extern int start_mlworks(int argc, const char *const *argv, mlval setup, void (*
   }
 
   /* Load any modules specified on the command line. */
-  for(loop=0; loop<argc; ++loop)
+  for(loop=0; loop<argc; ++loop) {
+    if (trace) {
+      fprintf(stderr, "[rts] loading argv module %d: %s\n", loop, argv[loop]);
+      fflush(stderr);
+    }
     result = load_link(argv[loop]);
+  }
 
   /* Now run the setup passed as an arg */
 
   if (setup != MLUNIT) {
     result = asm_trampoline(setup);
+  }
+  if (trace) {
+    fprintf(stderr, "[rts] start_mlworks after modules\n");
+    fflush(stderr);
   }
 
   stop = clock();
