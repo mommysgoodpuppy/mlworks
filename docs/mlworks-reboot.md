@@ -24,6 +24,8 @@ From `MLWorks-reboot`:
 
 ```bat
 mlw.exe run examples\hi.mlb
+mlw.exe run examples\basis.mlb 40
+mlw.exe run examples\modules\main.mlb
 ```
 
 That builds the program and then runs the generated object file. The separate
@@ -31,24 +33,26 @@ steps are:
 
 ```bat
 mlw.exe build examples\hi.sml
-mlw.exe run examples\objects\i386\nt\release\hi.mo
+mlw.exe run examples\.mlw\objects\i386\nt\release\hi.mo
 ```
 
 The build command:
 
-1. writes a minimal `mlw-generated.mlp` project beside the source file;
+1. writes a minimal `.mlw\mlw-generated.mlp` project under the source directory;
 2. invokes `compiler\mlw-compiler.exe` to build the target.
 
-The object file is written to:
+The generated project and object files are written under `.mlw` in the source
+directory:
 
 ```text
-<source-dir>\objects\i386\nt\release\<stem>.mo
+<source-dir>\.mlw\mlw-generated.mlp
+<source-dir>\.mlw\objects\i386\nt\release\<stem>.mo
 ```
 
 For example:
 
 ```text
-examples\objects\i386\nt\release\hi.mo
+examples\.mlw\objects\i386\nt\release\hi.mo
 ```
 
 ## Commands
@@ -97,14 +101,47 @@ runtime. It creates a sibling `<name>.mlwrt` directory containing:
 main.exe
 libmlw.dll
 pervasive-test.img
-program.mo
+compiled project objects
 ```
 
-Keep that directory next to the `.exe`. This is not yet MLWorks' historical
-single-file heap-embedded executable delivery. A direct `-save-exec` after
-loading a `.mo` can create an executable, but the program has already run while
-saving the heap, so launching that saved executable exits without rerunning the
-top-level program.
+Keep that directory next to the `.exe`.
+
+Build a smaller heap-delivered executable:
+
+```bat
+mlw.exe deliver path\to\main.sml path\to\program.exe
+mlw.exe deliver path\to\main.mlb path\to\program.exe
+```
+
+`deliver` expects the input project to define:
+
+```sml
+val main : unit -> 'a
+```
+
+The launcher writes a private `.mlw\mlw-main.sml` copy of the entry source,
+generates `.mlw\mlw-deliver.sml`, compiles that wrapper as the target, runs the
+wrapper once, and calls the historical:
+
+```sml
+MLWorks.Deliver.deliver (out, fn () => (ignore (main ()); ()), MLWorks.Deliver.CONSOLE)
+```
+
+That path writes a Windows executable with the ML heap embedded in the PE
+image. It is more self-contained than `mlw.exe exe`: the delivered executable
+only needs `libmlw.dll` beside it, because this reboot links the RTS as a DLL.
+It does not need `main.exe`, `pervasive-test.img`, `.mo` files, or a `.mlwrt`
+directory.
+
+For script-style files, the private entry copy strips a single-line top-level
+launcher of this exact shape:
+
+```sml
+val _ = main ()
+```
+
+This lets the same file work with `mlw run file.sml` without running `main`
+while `mlw deliver file.sml` is packaging the executable.
 
 Program arguments after the file are passed to the loaded SML program:
 
@@ -130,19 +167,105 @@ launcher uses:
 images\I386\NT\pervasive-test.img
 ```
 
+`MLWORKS_NO_BASIS` disables the launcher's automatic Basis project and runtime
+object-list wiring. This is mainly useful when debugging the raw compiler
+project behavior.
+
 ## Project Files
 
 MLWorks batch compilation is project based. The historical single-file
 `-compile` mode is not useful yet in this reboot: it can fail with messages like
 `no such unit exists`.
 
-The launcher works around that by generating a minimal `mlw-generated.mlp` in
-the source directory. It includes all `.sml` files in that directory and sets the
-requested source file as the target.
+The launcher works around that by generating a minimal
+`.mlw\mlw-generated.mlp` under the source directory. It includes all `.sml`
+files in that directory and sets the requested source file as the target.
 
-This is intentionally simple. It is enough for small programs and local
-experiments, but real dependency handling still needs MLWorks `require`
-declarations and probably a hand-maintained project file for larger programs.
+Generated projects include `src\basis.mlp` as a subproject by default. That
+makes normal Basis structures such as `Int`, `List`, `Array`, `TextIO`,
+`CommandLine`, `OS`, and `Timer` visible to small standalone programs without
+hand-written MLWorks `require` declarations.
+
+Runtime loading has a matching Basis step. `src\basis\require_all.sml` is not a
+self-contained object; it still references objects like `__option.mo` and
+`__int.mo`. The wrapper therefore asks the batch compiler to dump the ordered
+Basis dependency list:
+
+```bat
+mlw.exe basis
+```
+
+This writes:
+
+```text
+MLWorks-reboot\basis-objects.txt
+```
+
+Automatic `build`, `run`, and `exe` commands create this cache only when it is
+missing. The explicit `mlw.exe basis` command refreshes it.
+
+`mlw.exe run` then writes a transient `MLWorks-reboot\mlw-runtime-objects.txt`
+containing the absolute Basis object paths followed by the generated project
+object list, and runs the RTS with:
+
+```text
+-from mlw-runtime-objects.txt
+```
+
+`mlw.exe exe` copies those Basis objects into the generated `.mlwrt\basis`
+directory and writes a local `modules.txt`, so the launcher executable has the
+same load order. For generated source/MLB projects, the batch compiler also
+writes:
+
+```text
+<source-dir>\.mlw\mlw-project-objects.txt
+```
+
+That list is now used for `run`, `exe`, and `deliver`, so multi-unit projects
+with `require` dependencies load all compiled project objects instead of only
+the final target object.
+
+The generated project model is intentionally simple. It is enough for small
+programs and local experiments. Larger programs may still want explicit
+MLWorks `require` declarations or a hand-maintained project file for precise
+dependency boundaries.
+
+## Splitting Code
+
+MLWorks uses source units and explicit `require` declarations. The unit name is
+the source filename without `.sml`.
+
+For example, `greeting.sml` can define a structure:
+
+```sml
+structure Greeting =
+  struct
+    fun line name =
+      "Hello, " ^ name ^ " from a required unit\n"
+  end
+```
+
+Then `main.sml` can depend on it:
+
+```sml
+require "greeting";
+
+fun main () =
+  print (Greeting.line "MLWorks")
+
+val _ = main ()
+```
+
+With an MLB manifest, list the dependency first and the target last:
+
+```sml
+greeting.sml
+main.sml
+```
+
+`mlw.exe run`, `mlw.exe exe`, and `mlw.exe deliver` use the compiler's dumped
+project object list, so required project units are loaded before the target
+unit at runtime.
 
 ## Compile Paths
 
@@ -198,7 +321,7 @@ main.sml
 ```
 
 The wrapper strips `(* ... *)` comments, reads whitespace-separated `.sml`
-entries, recursively flattens `.mlb` entries, writes `mlw-generated.mlp`, and
+entries, recursively flattens `.mlb` entries, writes `.mlw\mlw-generated.mlp`, and
 uses the last `.sml` entry as the target.
 
 This is intentionally not full MLton MLB semantics. `basis`, `local`, `in`,
@@ -208,15 +331,144 @@ variables. Unsupported tokens are ignored with a warning.
 
 ## Rebuilding The Launcher
 
-Use the 32-bit MSVC toolchain:
+Use the checked-in launcher recipe instead of typing the MSVC command by hand:
 
 ```bat
-call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat" x86
-cd /d C:\GIT\mlworks\MLWorks-reboot
-cl /nologo /W3 /O2 /MT /Fe:mlw.exe mlw.c Shlwapi.lib
+cd /d C:\GIT\mlworks
+tools\reboot-mlw.cmd
 ```
 
-The generated `mlw.obj` is disposable.
+That runs two phases:
+
+```text
+build    rebuild MLWorks-reboot\mlw.exe from MLWorks-reboot\mlw.c
+smoke    run hello-world and Basis smoke tests
+```
+
+Individual phases are available:
+
+```bat
+tools\reboot-mlw.cmd build
+tools\reboot-mlw.cmd smoke
+```
+
+Useful environment override:
+
+```bat
+set VCVARS=C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat
+```
+
+The script centralizes:
+
+- 32-bit MSVC environment via `vcvarsall.bat x86`.
+- `cl /nologo /W3 /O2 /MT /Fe:mlw.exe mlw.c shlwapi.lib`.
+- removal of disposable `mlw.obj`.
+- smoke tests for `examples\hi.mlb` and `examples\basis.mlb`.
+
+## Packaging The Windows Reboot
+
+Use the checked-in package recipe to create a portable Windows folder and zip:
+
+```bat
+cd /d C:\GIT\mlworks
+tools\package-mlw.cmd
+```
+
+The default output is:
+
+```text
+dist\mlworks-reboot-win32\
+dist\mlworks-reboot-win32.zip
+```
+
+The package contains:
+
+```text
+mlw.exe
+mlw.bat
+README.md
+basis-objects.txt
+foreign-objects.txt
+bin\I386\NT\main.exe
+bin\I386\NT\libmlw.dll
+compiler\mlw-compiler.exe
+compiler\libmlw.dll
+images\I386\NT\pervasive-test.img
+examples\...
+lib\src\pervasive\...
+lib\src\basis\...
+lib\src\foreign\...
+lib\src\win_nt\...
+lib\src\rts\gen\...
+lib\objects\i386\nt\release\...
+```
+
+`mlw.exe` prefers the packaged `lib\src` and `lib\objects` paths when present.
+When those paths are absent, it falls back to the repository layout:
+
+```text
+..\src
+..\objects\i386\nt\release
+```
+
+This keeps development in the source checkout working while allowing the zip to
+build and run programs without a full checkout beside it. The package is still
+Windows/i386-specific and delivered executables still need `libmlw.dll` beside
+them.
+
+## FFI Smoke Demo
+
+`C:\GIT\mlw-testing\ffi-demo` contains a small Win32 foreign-interface demo.
+It builds a C DLL with an exported MLWorks stub initializer, then runs a small
+SML program with Foreign Interface support enabled:
+
+```powershell
+cd C:\GIT\mlw-testing\ffi-demo
+.\build-run.ps1
+```
+
+Expected output:
+
+```text
+25 + 17 = 42
+```
+
+The demo uses the newer dynamic-library API rather than the older manual
+`ForeignInterface.Store` API. The C side registers an ML-callable function via
+`mlw_ci_register_function`, and the SML side binds it with:
+
+```sml
+val add : c_int * c_int -> c_int = MLWorksDynamicLibrary.bind "ffi_add"
+```
+
+The launcher does not load the Foreign Interface by default. Opt in with:
+
+```bat
+set MLWORKS_FOREIGN=1
+mlw.exe run path\to\simple.mlb
+```
+
+or refresh the foreign support cache explicitly:
+
+```bat
+set MLWORKS_FOREIGN=1
+mlw.exe foreign
+```
+
+With `MLWORKS_FOREIGN=1`, generated projects include
+`src\foreign\foreign.mlp`, and runtime loading includes the foreign support
+objects before the program object.
+
+The DLL is linked with:
+
+```text
+/BASE:0x19000000 /FIXED
+```
+
+This is currently necessary for the same reason the rebooted RTS DLL was moved:
+MLWorks stores C function addresses in tagged ML values, so foreign stub code
+must load below the practical pointer ceiling. `libmlw.dll` currently uses
+`0x18000000`, and the demo stub DLL uses `0x19000000`.
 
 ## Rebuilding The RTS
 
@@ -374,7 +626,7 @@ user-facing path passed 50 consecutive build-and-run iterations:
 ```bat
 cd /d C:\GIT\mlworks\MLWorks-reboot
 mlw.exe build examples\hi.sml
-mlw.exe run examples\objects\i386\nt\release\hi.mo
+mlw.exe run examples\.mlw\objects\i386\nt\release\hi.mo
 ```
 
 The RTS also has an optional `MLW_RTS_TRACE=1` path for scheduler/startup
@@ -389,6 +641,12 @@ diagnostics. Leave it off for normal use.
   world object we tested, but needs more validation with larger programs.
 - `mlw.exe run file.sml` and `mlw.exe run file.mlb` build and then run the
   generated object file, similar to `zig run`.
+- `mlw.exe deliver` requires a `main : unit -> 'a` binding. It strips the
+  common single-line `val _ = main ()` entry call from the private delivery
+  copy, but other top-level effects still run while producing the delivered
+  executable. Keep deliverable programs behind `main` where possible.
+- The generated `.mlw\mlw-generated.mlp` is shared per source directory. Avoid
+  running multiple `mlw` commands against the same directory at the same time.
 - The old runtime filename parser does not handle quoted paths reliably. Keep
   source paths free of spaces for now.
 - The old registry warning is harmless for this workflow:
@@ -402,7 +660,7 @@ Software/Harlequin/MLWorks/Pervasive Path value not set in registry.
 ```bat
 cd /d C:\GIT\mlworks\MLWorks-reboot
 mlw.exe build examples\hi.sml
-mlw.exe run examples\objects\i386\nt\release\hi.mo
+mlw.exe run examples\.mlw\objects\i386\nt\release\hi.mo
 ```
 
 Expected output includes:

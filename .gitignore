@@ -2,3 +2,13 @@
 .DS_Store
 NUL
 objects/
+.mlw/
+dist/
+*.obj
+MLWorks-reboot/basis-objects.txt
+MLWorks-reboot/foreign-objects.txt
+MLWorks-reboot/foreign-dyn-objects.txt
+MLWorks-reboot/mlw-runtime-objects.txt
+MLWorks-reboot/examples/**/*.exe
+MLWorks-reboot/examples/**/*.dll
+MLWorks-reboot/examples/**/*.mlwrt/
