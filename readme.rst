@@ -4,36 +4,45 @@ MLWorks Reboot Fork
 This fork is a personal software-archeology project around Harlequin
 MLWorks, a Standard ML compiler and development system from the 1990s.
 
-The practical goal is narrower than restoring the whole historical product:
-make MLWorks useful as a small, portable Windows SML compiler for hobby
-projects, experiments, and exploring an old industrial-strength ML system.
-The IDE is not the focus.
+The working target is a simple Windows command-line SML system(maybe unix later):
+
+* download a package;
+* run ``mlw.exe run hello.sml``;
+* split code across a few files;
+* use the Standard ML Basis Library;
+* build or deliver a small executable;
+* explore MLWorks from the package.
+
+The focus is a practical CLI for hobby SML programs and MLWorks exploration.
 
 Why this fork exists
 --------------------
 
-Standard ML is a nice language for small programs, language experiments, and
-compiler work, but installing an SML compiler on Windows often drags in more
-infrastructure than the project deserves: Unix toolchains, MSYS/Cygwin, MSVC,
-Clang, package-manager bootstraps, or a full compiler build environment.
+Standard ML is fun for small tools, language experiments, and compiler
+work. On Windows, trying an SML compiler can involve a lot of setup before the
+first program runs: Unix-like shells, MSYS/Cygwin, MSVC, Clang, package-manager
+bootstraps, or a full compiler build environment.
 
-The aim here is closer to:
+This fork aims for a small Windows compiler distribution. A user should be able
+to unpack it and start writing SML.
 
-* download a Windows package;
-* run ``mlw.exe run hello.sml``;
-* build or deliver a small executable;
-* use real SML without dedicating the machine to an SML environment.
+MLWorks is a good candidate for this kind of project because it already has the
+pieces of a complete implementation:
 
-MLWorks is interesting for this because it already had a native-code SML
-compiler, a runtime system, a batch compiler image, a Basis Library
-implementation, a foreign interface, and executable delivery. Much of it still
-works if the old assumptions are made explicit and wrapped in a modern command
-line.
+* a native-code SML compiler;
+* a runtime system;
+* a saved batch compiler image;
+* a Standard ML Basis Library implementation;
+* a foreign interface;
+* executable delivery.
 
-What works now
---------------
+``mlw.exe`` builds a modern command-line interface on top of the MLWorks
+compiler, runtime, image, Basis, and project infrastructure.
 
-The current useful entry point is ``MLWorks-reboot\mlw.exe``.
+Quick start
+-----------
+
+Use ``MLWorks-reboot\mlw.exe``.
 
 From ``MLWorks-reboot``:
 
@@ -43,7 +52,7 @@ From ``MLWorks-reboot``:
     mlw.exe run examples\basis.mlb 40
     mlw.exe run examples\modules\main.mlb
 
-Supported workflow commands:
+Common commands:
 
 ::
 
@@ -57,103 +66,200 @@ Supported workflow commands:
     mlw.exe basis
     mlw.exe foreign
 
-The wrapper currently provides:
+What works
+----------
 
-* a ``zig run``-style build-and-run path for ``.sml`` and a small subset of
-  MLton-style ``.mlb`` manifests;
-* automatic generated MLWorks project files under ``.mlw`` instead of filling
-  the source directory with compiler outputs;
-* automatic Basis Library wiring for common structures such as ``Int``,
-  ``List``, ``Array``, ``TextIO``, ``CommandLine``, ``OS``, and ``Timer``;
-* multi-file project support through MLWorks ``require "unit"`` declarations;
-* launcher-style executable creation with ``mlw.exe exe``;
-* historical MLWorks heap delivery with ``mlw.exe deliver``;
+``mlw.exe`` provides:
+
+* a ``zig run``-style build-and-run path for ``.sml`` files;
+* a small MLton-style ``.mlb`` manifest reader for simple project files;
+* generated MLWorks project files under ``.mlw``;
+* automatic Basis Library setup for structures such as ``Int``, ``List``,
+  ``Array``, ``TextIO``, ``CommandLine``, ``OS``, and ``Timer``;
+* multi-file projects through MLWorks ``require "unit"`` declarations;
+* launcher executable creation with ``mlw.exe exe``;
+* heap-delivered executable creation with ``mlw.exe deliver``;
 * opt-in Foreign Interface support via ``MLWORKS_FOREIGN=1``;
-* rebuild scripts for the launcher and runtime;
-* a packaging script for a portable-ish Windows distribution.
+* repeatable launcher, runtime, and package build recipes.
 
-Portable Windows build
-----------------------
+Differences from current SML systems
+------------------------------------
 
-The most user-facing artifact is a Windows/i386 reboot package built by:
+MLWorks comes from a different generation of SML implementation than MLton,
+SML/NJ, Moscow ML, Poly/ML, or modern package-oriented compiler workflows.
+Some practical differences show up immediately:
+
+* The reboot package is Windows/i386. Generated code and runtime assumptions
+  are 32-bit.
+* The source tree contains historical target support for several platform pairs,
+  including I386/NT, I386/Win95, I386/Linux, SPARC/SunOS, SPARC/Solaris, and
+  MIPS/Irix. This fork currently exercises the Windows/i386 path.
+* The runtime is old C code with manual memory management, tagged values,
+  fixed-address assumptions, direct pointer manipulation, and platform-specific
+  object/image handling. Modern platforms make those assumptions more fragile
+  than they were on the original target systems.
+* MLWorks was built around projects, images, and an interactive development
+  environment. The CLI still needs to manage project data such as ``.mlp``
+  files, targets, object locations, modes, configurations, and dependency
+  lists.
+* The batch compiler is a saved MLWorks image. ``mlw-compiler.exe`` is an
+  executable image containing compiler state, not a normal C ``main`` linked
+  directly from compiler sources.
+* Build products are MLWorks object files (``.mo``) plus runtime load lists.
+  ``mlw.exe`` turns those into a direct ``run`` command, a launcher
+  executable, or a delivered executable.
+* The Basis Library exists as MLWorks project/source/object units. ``mlw.exe``
+  wires those units into small projects automatically.
+* Executable delivery saves an ML heap into a Windows executable. On Windows,
+  delivered programs travel with ``libmlw.dll``.
+* The current MLB support is a convenience manifest format for editor and
+  small-project workflows. It reads file lists and nested manifests, then maps
+  them onto MLWorks project builds.
+
+Split programs
+--------------
+
+MLWorks source units use the source filename minus ``.sml`` as the unit name.
+Use ``require`` when one unit depends on another.
+
+Example ``greeting.sml``:
+
+::
+
+    structure Greeting =
+      struct
+        fun line name =
+          "Hello, " ^ name ^ " from a required unit\n"
+      end
+
+Example ``main.sml``:
+
+::
+
+    require "greeting";
+
+    fun main () =
+      print (Greeting.line "MLWorks")
+
+    val _ = main ()
+
+Example ``main.mlb``:
+
+::
+
+    greeting.sml
+    main.sml
+
+The current MLB support reads comments, plain ``.sml`` entries, and nested
+``.mlb`` entries. The final ``.sml`` entry becomes the target unit.
+
+Portable Windows package
+------------------------
+
+Build the Windows/i386 package with:
 
 ::
 
     tools\package-mlw.cmd
 
-That writes:
+The script writes:
 
 ::
 
     dist\mlworks-reboot-win32\
     dist\mlworks-reboot-win32.zip
 
-The package contains the launcher, compiler image, runtime DLLs, runtime
-images, examples, Basis/Foreign sources, and prebuilt object cache. It is meant
-to be usable without a full checkout beside it.
+The package contains:
 
-This is still an old Windows/i386 system. Delivered executables are more
-self-contained than loose object/image launches, but they still need
-``libmlw.dll`` next to the generated ``.exe`` because the rebooted Windows RTS
-is DLL-based.
+* ``mlw.exe`` and ``mlw.bat``;
+* the saved batch compiler executable;
+* runtime DLLs and runtime images;
+* examples;
+* Basis and Foreign Interface sources;
+* prebuilt Basis and Foreign object caches.
 
-How the reboot is architected
------------------------------
+The package layout lets ``mlw.exe`` find its compiler support files inside the
+unpacked folder.
 
-The historical compiler path is image based. The important pieces are:
+Delivered executables
+---------------------
+
+``mlw.exe deliver`` uses MLWorks' executable delivery path. It saves the ML heap
+into the generated Windows executable and copies ``libmlw.dll`` next to it.
+
+Example:
+
+::
+
+    mlw.exe deliver examples\modules\main.mlb examples\modules\main.exe
+
+The result is:
+
+::
+
+    main.exe
+    libmlw.dll
+
+The MLWorks Windows runtime is DLL-based, so ``libmlw.dll`` is part of the
+delivered program's portable output.
+
+Reboot architecture
+-------------------
+
+The compiler path is image based. The important pieces are:
 
 ``MLWorks-reboot\mlw.exe``
-    A small C launcher for the modern workflow. It generates temporary
-    ``.mlp`` projects, invokes the batch compiler image, writes runtime object
-    lists, and runs or packages the result.
+    A small C launcher for the modern workflow. It writes temporary ``.mlp``
+    projects, invokes the batch compiler image, writes runtime object lists,
+    and runs or packages the result.
 
 ``MLWorks-reboot\compiler\mlw-compiler.exe``
-    A saved MLWorks batch compiler image. This is not a C compiler executable
-    built directly from the SML compiler sources; it is an MLWorks image saved
-    as an executable.
+    A saved MLWorks batch compiler image. MLWorks loads compiler state from an
+    image and saves that image as an executable.
 
 ``MLWorks-reboot\bin\I386\NT\main.exe`` and ``libmlw.dll``
-    The rebuilt runtime launcher and runtime DLL used to run compiled objects.
+    The runtime launcher and runtime DLL used to run compiled objects.
 
 ``MLWorks-reboot\images\I386\NT\pervasive-test.img``
-    The small runtime image used by the reboot command-line path.
+    The small runtime image used by the command-line path.
 
-``src\basis.mlp`` and ``objects\i386\nt\release``
-    The Basis Library project and compiled objects. The portable package copies
-    these under ``MLWorks-reboot\lib`` so the package can stand alone.
+``MLWorks-reboot\lib``
+    The portable package's copy of Basis/Foreign sources and prebuilt object
+    caches.
 
-The old batch compiler is project-oriented. Rather than trying to revive the
-broken ``-compile`` single-file path, ``mlw.exe`` generates a minimal MLWorks
-project and drives the compiler through the project build path. For MLB files,
-the current support is intentionally small: comments, plain ``.sml`` entries,
-and nested ``.mlb`` entries, with the final ``.sml`` file used as the target.
+The batch compiler is project-oriented. ``mlw.exe`` generates a minimal
+MLWorks project and drives the compiler through the project build path. That
+matches the compiler's working model and gives the CLI enough information to
+compile source units, resolve ``require`` dependencies, and dump the runtime
+object load order.
 
 Why ``mlw``?
 ------------
 
-``mlw`` is the pragmatic compatibility layer between a 1990s image-based
-compiler and the way a small compiler CLI should feel today.
+``mlw`` is a compatibility layer between the MLWorks runtime model and a small
+everyday compiler command.
 
-It hides details that are useful for archaeology but unpleasant for daily use:
+It gives names to the common operations:
 
-* saved images;
-* pervasive paths;
-* generated ``.mlp`` files;
-* Basis object load order;
-* runtime ``-load`` and ``-from`` arguments;
-* support directories for launcher executables;
-* heap-delivery wrapper code.
+* ``build``: compile a source file or MLB manifest;
+* ``run``: compile and execute a program;
+* ``exe``: create a launcher executable plus support directory;
+* ``deliver``: create a heap-delivered executable plus ``libmlw.dll``;
+* ``basis``: refresh the Basis object load list;
+* ``foreign``: refresh Foreign Interface support objects.
 
-The goal is not to disguise MLWorks as a new compiler. The goal is to keep the
-old system recognizable while making the common path short enough to actually
-use.
+It also keeps generated compiler state under ``.mlw``:
+
+::
+
+    .mlw\mlw-generated.mlp
+    .mlw\mlw-project-objects.txt
+    .mlw\objects\i386\nt\release\<unit>.mo
 
 Building from source
 --------------------
 
-For normal use, prefer the packaged Windows build.
-
-For development, the current checked-in recipes are:
+For development, the checked-in recipes are:
 
 ::
 
@@ -165,23 +271,23 @@ For development, the current checked-in recipes are:
 ``reboot-rts.cmd`` rebuilds and packages the Windows RTS artifacts.
 ``package-mlw.cmd`` creates the portable Windows folder and zip.
 
-The RTS build is still archaeology. It currently uses MSVC plus the old
-makefile flow and helper Unix-like tools. The point of the packaged reboot is
-that users should not need any of that just to use SML.
+The runtime rebuild currently uses MSVC plus the old makefile flow and helper
+Unix-like tools. The packaged reboot gives users the compiled result directly,
+so using SML starts with ``mlw.exe``.
 
-Current caveats
----------------
+Current status
+--------------
 
-* Windows/i386 only for the reboot package.
-* The IDE is out of scope.
-* ``mlw.exe deliver`` expects a ``main : unit -> 'a`` binding. It strips a
-  simple top-level ``val _ = main ()`` launcher from its private delivery copy,
-  but arbitrary top-level effects can still run while packaging.
-* Do not run multiple ``mlw`` commands concurrently against the same source
-  directory; they share the generated ``.mlw`` project state.
-* Paths with spaces are still risky because parts of the old runtime argument
-  parser predate modern quoting expectations.
-* The old registry warning is harmless for this workflow:
+* The reboot package targets Windows/i386.
+* ``mlw.exe deliver`` expects a ``main : unit -> 'a`` binding.
+* ``mlw.exe deliver`` strips a simple top-level ``val _ = main ()`` launcher
+  from its private delivery copy. Other top-level effects run while the image
+  is packaged.
+* Run one ``mlw`` command at a time per source directory. Commands share the
+  generated ``.mlw`` project state.
+* Path-with-spaces support needs more testing in the old runtime argument
+  parser.
+* This registry warning is expected:
 
 ::
 
@@ -199,5 +305,5 @@ The original Ravenbrook project page is:
 
     http://www.ravenbrook.com/project/mlworks/
 
-This fork builds on that open-source release with a narrower practical goal:
-make the rebooted compiler easy to try and useful for small Windows SML work.
+This fork builds on that open-source release and continues the reboot as a
+portable Windows command-line SML system.
