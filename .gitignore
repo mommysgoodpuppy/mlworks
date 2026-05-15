@@ -4,6 +4,7 @@ NUL
 objects/
 .mlw/
 dist/
+mlworks.wiki/
 *.obj
 MLWorks-reboot/basis-objects.txt
 MLWorks-reboot/foreign-objects.txt
